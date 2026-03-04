@@ -18,7 +18,7 @@ ROUTERS = [
         'config': 'Nexitally_1.yaml',
         # 策略组配置: 组名 -> (测速目标, 地区前缀列表)
         'groups': {
-            u'Google':   ('http://ip-api.com/json', [u'\U0001f1fa\U0001f1f8 USA']),
+            u'Google':   ('https://gemini.google.com', [u'\U0001f1fa\U0001f1f8 USA']),
             u'AI':       ('http://ip-api.com/json', [u'\U0001f1ef\U0001f1f5 Japan']),
             u'Telegram': ('http://ip-api.com/json', [u'\U0001f1f8\U0001f1ec Singapore']),
             u'Proxies':  ('http://ip-api.com/json', [u'\U0001f1ed\U0001f1f0 Hong Kong']),
@@ -35,7 +35,7 @@ ROUTERS = [
         'proxy_port': 7890,
         'config': 'Nexitally_2.yaml',
         'groups': {
-            u'Google':   ('http://ip-api.com/json', [u'\U0001f1fa\U0001f1f8 USA']),
+            u'Google':   ('https://gemini.google.com', [u'\U0001f1fa\U0001f1f8 USA']),
             u'AI':       ('http://ip-api.com/json', [u'\U0001f1ef\U0001f1f5 Japan']),
             u'Telegram': ('http://ip-api.com/json', [u'\U0001f1f8\U0001f1ec Singapore']),
             u'Proxies':  ('http://ip-api.com/json', [u'\U0001f1ed\U0001f1f0 Hong Kong']),
@@ -100,7 +100,7 @@ def clash_switch(base, token, group, node):
         return str(e)
 
 
-def measure_latency(base, session, proxy_auth, proxy_port):
+def measure_latency(base, session, proxy_auth, proxy_port, test_url='http://ip-api.com/json'):
     """通过路由器本机 curl 测延迟，走 Final 策略"""
     req = urllib2.Request(base + '/ubus/')
     req.add_header('Content-Type', 'application/json')
@@ -112,7 +112,7 @@ def measure_latency(base, session, proxy_auth, proxy_port):
                 "-s", "-o", "/dev/null", "-w", "TIME:%{time_total}",
                 "--max-time", "8",
                 "-x", "http://%s@127.0.0.1:%d" % (proxy_auth, proxy_port),
-                "http://ip-api.com/json"
+                test_url
             ]
         }]
     }))
@@ -128,7 +128,7 @@ def measure_latency(base, session, proxy_auth, proxy_port):
     return 9999
 
 
-def find_best_node(base, token, session, proxy_auth, proxy_port, group_name, prefixes):
+def find_best_node(base, token, session, proxy_auth, proxy_port, group_name, prefixes, test_url='http://ip-api.com/json'):
     """找出指定策略组中延迟最低的同地区节点"""
     try:
         data = clash_get_proxy(base, token, group_name)
@@ -162,7 +162,7 @@ def find_best_node(base, token, session, proxy_auth, proxy_port, group_name, pre
     for node in ordered:
         clash_switch(base, token, FINAL_GROUP, node)
         time.sleep(0.6)
-        ms = measure_latency(base, session, proxy_auth, proxy_port)
+        ms = measure_latency(base, session, proxy_auth, proxy_port, test_url)
         node_str = node.encode('utf-8') if isinstance(node, unicode) else node
         log('    测速: %-40s %s' % (node_str, '%dms' % ms if ms != 9999 else 'timeout'))
         if ms < best_ms:
@@ -200,12 +200,12 @@ def check_router(router):
             log('  [%s] 获取当前节点失败: %s' % (group_name, str(e)))
             continue
 
-        log('  [%s] 当前节点: %s' % (group_name, current_str))
+        log('  [%s] 当前节点: %s | 测速URL: %s' % (group_name, current_str, test_url))
 
         # 切 Final 到当前节点，测延迟
         clash_switch(base, token, FINAL_GROUP, current_node)
         time.sleep(0.6)
-        ms = measure_latency(base, session, proxy_auth, proxy_port)
+        ms = measure_latency(base, session, proxy_auth, proxy_port, test_url)
         log('  [%s] 当前延迟: %s' % (group_name, '%dms' % ms if ms != 9999 else 'timeout'))
 
         # 恢复 Final
@@ -214,7 +214,7 @@ def check_router(router):
         if ms > threshold:
             log('  [%s] ⚠️  延迟 %dms 超过阈值 %dms，开始寻找最优节点...' % (group_name, ms, threshold))
             best_node, best_ms = find_best_node(
-                base, token, session, proxy_auth, proxy_port, group_name, prefixes
+                base, token, session, proxy_auth, proxy_port, group_name, prefixes, test_url
             )
             if best_node:
                 best_str = best_node.encode('utf-8') if isinstance(best_node, unicode) else best_node
